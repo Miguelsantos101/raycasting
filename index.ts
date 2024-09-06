@@ -54,6 +54,27 @@ function strokeLine(ctx: CanvasRenderingContext2D, p1: Vector2, p2: Vector2) {
     ctx.stroke();
 }
 
+function snap(x: number, dx: number): number {
+    if (dx > 0) return Math.ceil(x);
+    if (dx < 0) return Math.floor(x);
+    return x;
+}
+
+function rayStep(ctx: CanvasRenderingContext2D, p1: Vector2, p2: Vector2): Vector2 {
+    const d = p2.sub(p1);
+
+    if (d.x != 0) {
+        const k = d.y / d.x;
+        const c = p1.y - k * p1.x;
+        const x3 = snap(p2.x, d.x)
+        const y3 = x3 * k + c;
+        ctx.fillStyle = "red";
+        fillCircle(ctx, new Vector2(x3, y3), 0.2);
+    }
+
+    return p2;
+}
+
 // drawGrid
 function grid(ctx: CanvasRenderingContext2D, p2: Vector2 | undefined) {
     ctx.reset();
@@ -78,15 +99,14 @@ function grid(ctx: CanvasRenderingContext2D, p2: Vector2 | undefined) {
         fillCircle(ctx, p2, 0.2);
         ctx.strokeStyle = "green"
         strokeLine(ctx, p1, p2);
-        const p3 = rayStep(p1, p2);
+
+        const p3 = rayStep(ctx, p1, p2);
+        ctx.fillStyle = "blue";
         fillCircle(ctx, p3, 0.2);
         strokeLine(ctx, p2, p3)
     }
 }
 
-function rayStep(p1: Vector2, p2: Vector2): Vector2 {
-    return p2.sub(p1).norm().add(p2)
-}
 
 (() => {
     const game = document.getElementById("game") as (HTMLCanvasElement | null);
