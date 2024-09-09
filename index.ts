@@ -1,9 +1,19 @@
+const EPS: number = 1e-3;
+const NEAR_CLIPPING_PLANE: number = 0.75;
+const FOV = Math.PI * 0.5;
+
 class Vector2 {
     x: number;
     y: number;
     constructor(x: number, y: number) {
         this.x = x;
         this.y = y;
+    }
+    static zero(): Vector2 {
+        return new Vector2(0, 0);
+    }
+    static fromAngle(angle: number): Vector2 {
+        return new Vector2(Math.cos(angle), Math.sin(angle));
     }
     add(that: Vector2): Vector2 {
         return new Vector2(this.x + that.x, this.y + that.y);
@@ -36,11 +46,6 @@ class Vector2 {
     }
 }
 
-const EPS: number = 1e-3;
-const GRID_ROWS: number = 10;
-const GRID_COLS: number = 10;
-const GRID_SIZE: Vector2 = new Vector2(GRID_COLS, GRID_ROWS);
-let scene = Array(GRID_ROWS).fill(0).map(() => Array(GRID_COLS).fill(0));
 
 function canvasSize(ctx: CanvasRenderingContext2D): Vector2 {
     return new Vector2(ctx.canvas.width, ctx.canvas.height);
@@ -104,17 +109,40 @@ function rayStep(p1: Vector2, p2: Vector2): Vector2 {
     return p3;
 }
 
-// drawGrid
-function minimap(ctx: CanvasRenderingContext2D, p2: Vector2 | undefined) {
-    ctx.reset();
+type Scene = Array<Array<number>>
+
+function sceneSize(scene: Scene): Vector2 {
+    const y = scene.length;
+    let x = Number.MIN_VALUE;
+    for (let row of scene) {
+        x = Math.max(x, row.length);
+    }
+    return new Vector2(x, y);
+}
+
+class Player {
+    position: Vector2;
+    direction: number;
+    constructor(position: Vector2, direction: number) {
+        this.position = position;
+        this.direction = direction;
+    }
+}
+
+function minimap(ctx: CanvasRenderingContext2D, player: Player, position: Vector2, size: Vector2, scene: Array<Array<number>>) {
+    ctx.save();
+
     ctx.fillStyle = "#181818";
     ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
 
-    ctx.scale(ctx.canvas.width / GRID_COLS, ctx.canvas.height / GRID_ROWS);
-    ctx.lineWidth = 0.02;
+    const gridSize = sceneSize(scene);
 
-    for (let y = 0; y < GRID_ROWS; y++) {
-        for (let x = 0; x < GRID_COLS; x++) {
+    ctx.translate(...position.array());
+    ctx.scale(...size.div(gridSize).array());
+    ctx.lineWidth = 0.1;
+
+    for (let y = 0; y < gridSize.y; y++) {
+        for (let x = 0; x < gridSize.x; x++) {
             if (scene[y][x] !== 0) {
                 ctx.fillStyle = "#303030";
                 ctx.fillRect(x, y, 1, 1);
@@ -123,59 +151,53 @@ function minimap(ctx: CanvasRenderingContext2D, p2: Vector2 | undefined) {
     }
 
     ctx.strokeStyle = "#303030";
-    for (let x: number = 0; x <= GRID_COLS; x++) {
-        strokeLine(ctx, new Vector2(x, 0), new Vector2(x, GRID_ROWS))
+    for (let x: number = 0; x <= gridSize.x; x++) {
+        strokeLine(ctx, new Vector2(x, 0), new Vector2(x, gridSize.y))
     }
-    for (let y: number = 0; y <= GRID_ROWS; y++) {
-        strokeLine(ctx, new Vector2(0, y), new Vector2(GRID_COLS, y));
+    for (let y: number = 0; y <= gridSize.y; y++) {
+        strokeLine(ctx, new Vector2(0, y), new Vector2(gridSize.x, y));
     }
 
-    let p1 = new Vector2(GRID_COLS * 0.43, GRID_ROWS * 0.33);
     ctx.fillStyle = "green";
-    fillCircle(ctx, p1, 0.2);
-    if (p2 !== undefined) {
-        for (; ;) {
-            fillCircle(ctx, p2, 0.2);
-            ctx.strokeStyle = "green"
-            strokeLine(ctx, p1, p2);
+    fillCircle(ctx, player.position, 0.2);
+    ctx.strokeStyle = "green";
+    strokeLine(ctx, player.position, player.position.add(Vector2.fromAngle(player.direction).scale(NEAR_CLIPPING_PLANE)));
 
-            const c = hittingCell(p1, p2);
-            if (
-                c.x < 0 || c.x >= GRID_SIZE.x ||
-                c.y < 0 || c.y >= GRID_SIZE.y ||
-                scene[c.y][c.x] == 1
-            ) {
-                break;
-            }
-
-            const p3 = rayStep(p1, p2);
-            p1 = p2;
-            p2 = p3;
-        }
-    }
+    ctx.restore();
 }
 
 
+
 (() => {
-    scene[1][1] = 1;
+    let scene = [
+        [0, 0, 1, 1, 0, 0, 0, 0, 0],
+        [0, 0, 0, 1, 0, 0, 0, 0, 0],
+        [0, 1, 1, 1, 0, 0, 0, 0, 0],
+        [0, 0, 0, 0, 0, 0, 0, 0, 0],
+        [0, 0, 0, 0, 0, 0, 0, 0, 0],
+        [0, 0, 0, 0, 0, 0, 0, 0, 0],
+        [0, 0, 0, 0, 0, 0, 0, 0, 0],
+    ]
     const game = document.getElementById("game") as (HTMLCanvasElement | null);
     if (game == null) {
         throw new Error("No canvas with id `game` is found");
     }
-    game.width = 800;
-    game.height = 800;
+
+    const factor = 80;
+    game.width = 16 * factor;
+    game.height = 9 * factor;
     const ctx = game.getContext("2d");
     if (ctx == null) {
         throw new Error("2D context is not supported");
     }
 
-    const p2: Vector2 | undefined = undefined;
-    game.addEventListener("mousemove", (event: MouseEvent) => {
-        const p2 = new Vector2(event.offsetX, event.offsetY)
-            .div(canvasSize(ctx))
-            .mul(new Vector2(GRID_COLS, GRID_ROWS))
-        minimap(ctx, p2);
-    });
-    minimap(ctx, p2);
+    let player = new Player(
+        sceneSize(scene).mul(new Vector2(0.63, 0.63)),
+        Math.PI * 1.25)
+    let minimapPosition = Vector2.zero().add(canvasSize(ctx).scale(0.03));
+    let cellSize = ctx.canvas.width * 0.06
+    let minimapSize = sceneSize(scene).scale(cellSize);
+
+    minimap(ctx, player, minimapPosition, minimapSize, scene);
 
 })()
